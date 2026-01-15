@@ -1,0 +1,229 @@
+import streamlit as st
+import pandas as pd
+
+# --- CONFIGURAZIONE PAGINA ---
+# Impostiamo il layout su "wide" per dare più respiro su PC, su mobile si adatta
+st.set_page_config(page_title="Studio Gaetani | Tax Simulator", page_icon="⚖️", layout="centered")
+
+# --- DESIGN & CSS LUXURY (BLU & ORO) ---
+st.markdown("""
+    <style>
+    /* === SFONDO GENERALE (BLU NOTTE PROFONDO) === */
+    .stApp {
+        background: linear-gradient(to bottom, #001529, #002a52);
+    }
+
+    /* === CONTENITORE PRINCIPALE (IL BOX BIANCO CON CORNICE ORO) === */
+    /* Questo è il trucco per fare la cornice su mobile */
+    .main .block-container {
+        background-color: #ffffff; /* Sfondo bianco pulito per i testi */
+        border: 4px solid #D4AF37; /* CORNICE ORO METALLICO */
+        border-radius: 15px; /* Angoli arrotondati */
+        padding: 2rem; /* Spazio interno */
+        box-shadow: 0 0 30px rgba(212, 175, 55, 0.3); /* Un leggero bagliore dorato esterno */
+        margin-top: 1rem;
+        margin-bottom: 1rem;
+    }
+
+    /* === TYPOGRAPHY DENTRO IL BOX === */
+    /* I titoli devono essere scuri perché sono su sfondo bianco */
+    h1, h2, h3, h4 {
+        color: #002a52 !important; /* Blu scuro istituzionale */
+        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    }
+    /* Il testo normale */
+    p, .stMarkdown, .stText {
+         color: #333333;
+    }
+
+    /* === SIDEBAR (MENU LATERALE SCURO) === */
+    [data-testid="stSidebar"] {
+        background-color: #001529; /* Blu notte */
+        border-right: 2px solid #D4AF37; /* Linea di separazione oro */
+    }
+    /* Testo bianco nella sidebar per contrasto */
+    [data-testid="stSidebar"] h1, 
+    [data-testid="stSidebar"] h2, 
+    [data-testid="stSidebar"] h3, 
+    [data-testid="stSidebar"] p, 
+    [data-testid="stSidebar"] span,
+    [data-testid="stSidebar"] label {
+         color: #f0f0f0 !important; 
+    }
+
+    /* === ELEMENTI INTERATTIVI === */
+    /* Card dei risultati */
+    .result-card {
+        background: #fcfcfc;
+        padding: 20px;
+        border-radius: 10px;
+        border: 2px solid #D4AF37; /* Bordo oro sottile */
+        border-left: 8px solid #D4AF37; /* Bordo spesso a sinistra */
+        box-shadow: 0 5px 15px rgba(0,0,0,0.05);
+        margin-bottom: 20px;
+    }
+    
+    /* Pulsanti (Blu con bordo oro, diventano oro al passaggio) */
+    .stButton>button {
+        background-color: #002a52;
+        color: #D4AF37; /* Testo oro */
+        font-weight: 600;
+        border-radius: 8px;
+        border: 2px solid #D4AF37; /* Bordo oro */
+        padding: 0.6rem 1rem;
+        transition: all 0.3s ease;
+        width: 100%;
+    }
+    .stButton>button:hover {
+        background-color: #D4AF37; /* Sfondo oro al passaggio del mouse */
+        color: #002a52; /* Testo blu */
+        box-shadow: 0 0 15px rgba(212, 175, 55, 0.5);
+    }
+    
+    /* Tabelle */
+    .dataframe {
+        color: #333 !important;
+        font-family: "Arial", sans-serif;
+        border-collapse: collapse;
+        width: 100%;
+        border: 1px solid #eee;
+    }
+    thead tr th {
+        background-color: #002a52 !important;
+        color: #D4AF37 !important;
+    }
+    
+    /* Nascondere footer e menu hamburger di Streamlit per pulizia */
+    footer {visibility: hidden;}
+    #MainMenu {visibility: hidden;}
+    </style>
+""", unsafe_allow_html=True)
+
+# --- INTESTAZIONE STUDIO ---
+# Usiamo colonne per allineare il logo (emoji) e il titolo
+col_logo, col_title = st.columns([1, 6])
+with col_logo:
+    # Un'icona color oro per abbinarsi
+    st.markdown("<h1 style='text-align: center; color: #D4AF37 !important;'>⚖️</h1>", unsafe_allow_html=True)
+with col_title:
+    st.title("STUDIO GAETANI")
+    st.markdown("<span style='color: #666; font-style: italic;'>Partner fiscale per l'Avvocatura</span>", unsafe_allow_html=True)
+
+st.markdown("---", unsafe_allow_html=True)
+
+# --- SIDEBAR: PARAMETRI ---
+st.sidebar.header("⚙️ Configurazione")
+st.sidebar.markdown("Seleziona il profilo fiscale:")
+
+aliquota_scelta = st.sidebar.radio(
+    "Aliquota Imposta Sostitutiva",
+    ["Start-up (5%)", "Ordinario (15%)"],
+    index=1
+)
+aliquota_imposta = 0.05 if "Start-up" in aliquota_scelta else 0.15
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 📝 Parametri")
+st.sidebar.info("""
+**Codice ATECO:** 69.10.10  
+**Coeff. Redditività:** 78%  
+**Cassa Forense:** ~15% (Sogg.)  
+""")
+st.sidebar.markdown("<div style='text-align:center; color: #D4AF37; margin-top: 20px;'>⚜️ Luxury Edition v3.0</div>", unsafe_allow_html=True)
+
+# --- FUNZIONI DI CALCOLO (Invariate) ---
+
+def calcola_lordo_da_netto(netto, aliquota):
+    fattore_cassa = 0.78 * 0.15
+    fattore_tasse = (0.78 - fattore_cassa) * aliquota
+    denominatore = 1 - fattore_cassa - fattore_tasse
+    if denominatore <= 0: return 0 # Evita divisioni per zero in casi estremi
+    return netto / denominatore
+
+def genera_dataframe_dettaglio(fatturato, aliquota):
+    reddito_forfettario = fatturato * 0.78
+    cassa = reddito_forfettario * 0.15
+    imponibile_fiscale = reddito_forfettario - cassa
+    tasse = imponibile_fiscale * aliquota
+    netto = fatturato - cassa - tasse
+    
+    data = {
+        "Descrizione": [
+            "1. Fatturato (Onorari)",
+            "2. Abbattimento Costi Forfettari (22%)",
+            "3. Reddito Professionale (78%)",
+            "4. Cassa Forense (15% deducibile)", 
+            "5. Base Imponibile Fiscale (3 - 4)",
+            f"6. Imposta Sostitutiva ({int(aliquota*100)}%)",
+            "👉 NETTO DISPONIBILE"
+        ],
+        "Importo (€)": [
+            fatturato,
+            -(fatturato * 0.22),
+            reddito_forfettario,
+            -cassa,
+            imponibile_fiscale,
+            -tasse,
+            netto
+        ]
+    }
+    return pd.DataFrame(data)
+
+# --- NAVIGAZIONE TABS ---
+tab1, tab2 = st.tabs(["📉 Dal Lordo al Netto", "🎯 Dal Netto al Lordo"])
+
+# === TAB 1: CALCOLO CLASSICO ===
+with tab1:
+    st.markdown("### Analisi redditività")
+    st.write("Inserisci l'importo degli onorari annui per calcolare il netto reale in tasca.")
+    
+    compenso_lordo = st.number_input("Compensi Lordi Annui (€)", min_value=0.0, value=30000.0, step=1000.0, format="%.2f")
+
+    if st.button("Calcola Netto", key="btn_netto"):
+        df_dettaglio = genera_dataframe_dettaglio(compenso_lordo, aliquota_imposta)
+        netto_finale = df_dettaglio.iloc[-1]["Importo (€)"]
+        
+        # CARD RISULTATO
+        st.markdown(f"""
+        <div class="result-card">
+            <h3 style="margin:0; color:#666;">Netto in tasca stimato:</h3>
+            <h1 style="margin:0; color:#002a52; font-size: 2.5em;">€ {netto_finale:,.2f}</h1>
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.markdown("#### 🔍 Dettaglio del calcolo")
+        st.table(df_dettaglio.style.format({"Importo (€)": "€ {:,.2f}"}))
+        
+        cassa_integrativa = compenso_lordo * 0.04
+        st.info(f"ℹ️ **Nota Bene:** In fattura dovrai aggiungere il **4% C.P.A.** (pari a € {cassa_integrativa:,.2f}). Questa somma la incassi dal cliente ma la devi versare interamente alla Cassa, quindi non è reddito tuo.")
+
+# === TAB 2: CALCOLO INVERSO ===
+with tab2:
+    st.markdown("### Pianificazione Obiettivi")
+    st.write("Inserisci quanto vuoi guadagnare 'pulito' per sapere quanto devi fatturare.")
+    
+    netto_desiderato = st.number_input("Netto Desiderato Annuo (€)", min_value=0.0, value=24000.0, step=1000.0, format="%.2f")
+    
+    if st.button("Calcola Fatturato Necessario", key="btn_lordo"):
+        lordo_necessario = calcola_lordo_da_netto(netto_desiderato, aliquota_imposta)
+        
+        # CARD RISULTATO
+        st.markdown(f"""
+        <div class="result-card" style="border-left-color: #D4AF37;">
+            <h3 style="margin:0; color:#666;">Devi fatturare (Onorari):</h3>
+            <h1 style="margin:0; color:#D4AF37; font-size: 2.5em;">€ {lordo_necessario:,.2f}</h1>
+            <small style="color: #666">+ 4% CPA in fattura = Totale bonifico cliente € {lordo_necessario*1.04:,.2f}</small>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # RI-CALCOLO PER DIMOSTRAZIONE (Prova del 9)
+        st.markdown("#### 🔢 Prova del nove (Verifica)")
+        st.write("Partendo dal fatturato calcolato sopra, ecco come si arriva al tuo netto:")
+        
+        df_verifica = genera_dataframe_dettaglio(lordo_necessario, aliquota_imposta)
+        st.table(df_verifica.style.format({"Importo (€)": "€ {:,.2f}"}))
+        
+        if lordo_necessario > 85000:
+            st.warning("⚠️ **Attenzione:** Con questo importo superi il limite di € 85.000 e fuoriuscirai dal regime forfettario l'anno successivo!")
+
+st.markdown("<br><hr style='border-top: 1px solid #D4AF37;'><center style='color:#888; font-size: 0.8em;'>Studio Gaetani © 2024 | Esclusiva Clienti | P.IVA 00000000000</center>", unsafe_allow_html=True)
